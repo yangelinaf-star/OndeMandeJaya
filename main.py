@@ -1,1 +1,2 @@
-print(1 + 2)
+a = input("Enter a value: ")
+print(a)
