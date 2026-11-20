@@ -1,2 +1,3 @@
 a = input("Enter a value: ")
-print(a)
+c = input("Enter another value: ")
+print(a + c)
