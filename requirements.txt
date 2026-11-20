@@ -1,0 +1,23 @@
+
+# Backend API
+Flask
+Flask-Cors
+gunicorn
+
+# AI and Computer Vision
+ultralytics
+torch
+torchvision
+opencv-python
+
+# Data Processing
+numpy
+pandas
+scikit-learn
+matplotlib
+
+# Database
+Flask-SQLAlchemy
+
+# Image Processing
+Pillow

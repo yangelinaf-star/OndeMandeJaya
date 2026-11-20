@@ -1,179 +1,76 @@
-
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-import sqlite3
 
-from database import (
-    initialize_database,
-    get_connection
-)
-
+from database import get_connection, initialize_database
 from pricing import calculate_price
-
 
 app = Flask(__name__)
 CORS(app)
 
 
-# =========================
-# HOME / TEST BACKEND
-# =========================
-
+# Halaman utama untuk mengecek backend
 @app.route("/", methods=["GET"])
 def home():
     return jsonify({
-        "message": "PadangScan AI Backend is Running!",
-        "status": "success"
+        "message": "PadangScan AI Backend is running!"
     })
 
 
-# =========================
-# GET ALL MENU
-# =========================
-
+# Mengambil semua menu aktif
 @app.route("/api/menu", methods=["GET"])
 def get_menu():
-    conn = get_connection()
-    cursor = conn.cursor()
+    connection = get_connection()
 
-    cursor.execute("SELECT * FROM menu ORDER BY name")
+    menus = connection.execute("""
+        SELECT id, name, price
+        FROM menu
+        WHERE is_active = 1
+        ORDER BY price, name
+    """).fetchall()
 
-    menus = [dict(row) for row in cursor.fetchall()]
+    connection.close()
 
-    conn.close()
-
-    return jsonify(menus)
-
-
-# =========================
-# ADD NEW MENU
-# =========================
-
-@app.route("/api/menu", methods=["POST"])
-def add_menu():
-    data = request.get_json(silent=True) or {}
-
-    name = data.get("name")
-    price = data.get("price")
-
-    if not isinstance(name, str) or not name.strip():
-        return jsonify({"error": "Nama makanan wajib diisi"}), 400
-
-    if type(price) is not int or price < 0:
-        return jsonify({"error": "Harga harus berupa angka positif"}), 400
-
-    conn = get_connection()
-
-    try:
-        cursor = conn.cursor()
-
-        cursor.execute("""
-            INSERT INTO menu (name, price)
-            VALUES (?, ?)
-        """, (name.strip(), price))
-
-        conn.commit()
-
-        return jsonify({
-            "message": "Menu berhasil ditambahkan"
-        }), 201
-
-    except sqlite3.IntegrityError:
-        return jsonify({
-            "error": "Nama makanan sudah tersedia"
-        }), 409
-
-    finally:
-        conn.close()
+    return jsonify([
+        dict(menu) for menu in menus
+    ])
 
 
-# =========================
-# UPDATE FOOD PRICE
-# =========================
-
-@app.route("/api/menu/<int:menu_id>", methods=["PUT"])
-def update_menu(menu_id):
-    data = request.get_json(silent=True) or {}
-
-    price = data.get("price")
-
-    if type(price) is not int or price < 0:
-        return jsonify({"error": "Harga tidak valid"}), 400
-
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        UPDATE menu
-        SET price = ?
-        WHERE id = ?
-    """, (price, menu_id))
-
-    conn.commit()
-
-    updated = cursor.rowcount
-    conn.close()
-
-    if updated == 0:
-        return jsonify({"error": "Menu tidak ditemukan"}), 404
-
-    return jsonify({
-        "message": "Harga berhasil diperbarui"
-    })
-
-
-# =========================
-# CALCULATE FOOD PRICE
-# =========================
-
+# Menghitung harga pesanan
 @app.route("/api/calculate", methods=["POST"])
 def calculate():
-    data = request.get_json(silent=True) or {}
-    items = data.get("items")
+    data = request.get_json(silent=True)
 
-    if not isinstance(items, list) or not items:
-        return jsonify({
-            "error": "Daftar makanan tidak boleh kosong"
-        }), 400
+    if not isinstance(data, dict):
+        return jsonify({"error": "Format JSON tidak valid."}), 400
+
+    items = data.get("items")
 
     try:
         result = calculate_price(items)
-
-        return jsonify({
-            "message": "Harga berhasil dihitung",
-            **result
-        })
+        return jsonify(result)
 
     except ValueError as error:
-        return jsonify({
-            "error": str(error)
-        }), 400
+        return jsonify({"error": str(error)}), 400
 
 
-# =========================
-# CHECKOUT AND SAVE TRANSACTION
-# =========================
-
+# Menyimpan transaksi
 @app.route("/api/checkout", methods=["POST"])
 def checkout():
-    data = request.get_json(silent=True) or {}
-    items = data.get("items")
+    data = request.get_json(silent=True)
 
-    if not isinstance(items, list) or not items:
-        return jsonify({
-            "error": "Tidak ada makanan untuk checkout"
-        }), 400
+    if not isinstance(data, dict):
+        return jsonify({"error": "Format JSON tidak valid."}), 400
 
     try:
-        result = calculate_price(items)
+        result = calculate_price(data.get("items"))
 
-        conn = get_connection()
-        cursor = conn.cursor()
+        connection = get_connection()
+        cursor = connection.cursor()
 
         cursor.execute("""
             INSERT INTO transactions (total_price)
             VALUES (?)
-        """, (result["total"],))
+        """, (result["total_price"],))
 
         transaction_id = cursor.lastrowid
 
@@ -189,46 +86,38 @@ def checkout():
                 item["subtotal"]
             ))
 
-        conn.commit()
-        conn.close()
+        connection.commit()
+        connection.close()
 
         return jsonify({
-            "message": "Transaksi berhasil disimpan",
+            "message": "Transaksi berhasil disimpan.",
             "transaction_id": transaction_id,
             "items": result["items"],
-            "total": result["total"]
+            "total_price": result["total_price"]
         }), 201
 
     except ValueError as error:
         return jsonify({"error": str(error)}), 400
 
 
-# =========================
-# GET TRANSACTION HISTORY
-# =========================
-
+# Melihat riwayat transaksi
 @app.route("/api/transactions", methods=["GET"])
 def get_transactions():
-    conn = get_connection()
-    cursor = conn.cursor()
+    connection = get_connection()
 
-    cursor.execute("""
-        SELECT * FROM transactions
-        ORDER BY created_at DESC
-    """)
+    transactions = connection.execute("""
+        SELECT id, total_price, created_at
+        FROM transactions
+        ORDER BY id DESC
+    """).fetchall()
 
-    transactions = [
-        dict(row) for row in cursor.fetchall()
-    ]
+    connection.close()
 
-    conn.close()
+    return jsonify([
+        dict(transaction) for transaction in transactions
+    ])
 
-    return jsonify(transactions)
-
-
-# =========================
-# RUN SERVER
-# =========================
 
 if __name__ == "__main__":
-    app.run(debug=False)
+    initialize_database()
+    app.run(host="127.0.0.1", port=5000, debug=True)

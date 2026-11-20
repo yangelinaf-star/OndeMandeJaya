@@ -1,50 +1,57 @@
-
 from database import get_connection
- 
+
+
 def calculate_price(items):
-    conn = get_connection()
-    cursor = conn.cursor()
+    if not isinstance(items, list) or len(items) == 0:
+        raise ValueError("Daftar menu tidak boleh kosong.")
+
+    connection = get_connection()
+    cursor = connection.cursor()
 
     results = []
-    total = 0
+    total_price = 0
 
-    for item in items:
-        name = item.get("name")
-        quantity = item.get("quantity", 1)
+    try:
+        for item in items:
+            name = item.get("name")
+            quantity = item.get("quantity", 1)
 
-        if not isinstance(name, str) or not name.strip():
-            conn.close()
-            raise ValueError("Nama makanan tidak valid")
+            if not isinstance(name, str) or not name.strip():
+                raise ValueError("Nama menu tidak valid.")
 
-        if type(quantity) is not int or quantity < 1:
-            conn.close()
-            raise ValueError("Jumlah makanan harus bilangan bulat positif")
+            if (
+                isinstance(quantity, bool)
+                or not isinstance(quantity, int)
+                or quantity <= 0
+            ):
+                raise ValueError("Jumlah menu harus berupa bilangan bulat positif.")
 
-        cursor.execute(
-            "SELECT id, name, price FROM menu WHERE name = ?",
-            (name.strip(),)
-        )
+            cursor.execute("""
+                SELECT id, name, price
+                FROM menu
+                WHERE name = ? AND is_active = 1
+            """, (name,))
 
-        food = cursor.fetchone()
+            menu = cursor.fetchone()
 
-        if food is None:
-            conn.close()
-            raise ValueError(f"Makanan {name} tidak ditemukan")
+            if menu is None:
+                raise ValueError(f"Menu '{name}' tidak ditemukan.")
 
-        subtotal = food["price"] * quantity
-        total += subtotal
+            subtotal = menu["price"] * quantity
+            total_price += subtotal
 
-        results.append({
-            "menu_id": food["id"],
-            "name": food["name"],
-            "price": food["price"],
-            "quantity": quantity,
-            "subtotal": subtotal
-        })
+            results.append({
+                "menu_id": menu["id"],
+                "name": menu["name"],
+                "quantity": quantity,
+                "price": menu["price"],
+                "subtotal": subtotal
+            })
 
-    conn.close()
+        return {
+            "items": results,
+            "total_price": total_price
+        }
 
-    return {
-        "items": results,
-        "total": total
-    }
+    finally:
+        connection.close()
